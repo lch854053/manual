@@ -1,0 +1,95 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#405166">
+  <title>자료 등록 | 통합민원대 업무지원서비스</title>
+  <link rel="stylesheet" href="/styles.css">
+</head>
+<body class="admin-body">
+  <header class="admin-header">
+    <div class="header-width">
+      <a class="brand admin-brand" href="/"><img class="brand-mark" src="/static/donggu-logo.png" alt=""><span><strong>통합민원대 업무지원서비스</strong><small>DOCUMENT CONSOLE</small></span></a>
+      <a class="back-link" href="/">열람 화면으로 돌아가기</a>
+    </div>
+  </header>
+
+  <main class="admin-wrap">
+    <section class="admin-intro">
+      <p>DOCUMENT MANAGEMENT</p>
+      <h1>매뉴얼 자료 등록</h1>
+      <span>파일 전체에 대한 개인정보 검사가 끝난 뒤에만 문서가 공개됩니다.</span>
+    </section>
+
+    <div class="security-flow" aria-label="업로드 보안 절차">
+      <div><b>01</b><strong>형식 확인</strong><span>확장자·파일 시그니처</span></div>
+      <i aria-hidden="true"></i>
+      <div><b>02</b><strong>안전 검사</strong><span>암호화·매크로·압축</span></div>
+      <i aria-hidden="true"></i>
+      <div><b>03</b><strong>본문 전수검사</strong><span>전화번호·등록번호 등</span></div>
+      <i aria-hidden="true"></i>
+      <div><b>04</b><strong>버전 등록</strong><span>검사 통과 후 원자적 저장</span></div>
+    </div>
+
+    <div class="admin-grid">
+      <form class="upload-card" id="uploadForm">
+        <div class="card-heading"><span>필수 입력</span><h2>문서 정보</h2></div>
+
+        <div class="form-grid authentication-grid">
+          <label><span>관리자 키 <b>*</b></span><input id="adminKey" type="password" autocomplete="current-password" required placeholder="서버에 설정된 ADMIN_KEY"></label>
+          <label><span>담당자명 <b>*</b></span><input id="adminName" name="admin_name" type="text" maxlength="50" required placeholder="예: 홍길동 주무관"></label>
+        </div>
+
+        <label><span>등록 방식 <b>*</b></span>
+          <select id="existingDocument" name="existing_document_id">
+            <option value="">새 문서로 등록</option>
+          </select>
+          <small>기존 문서를 선택하면 원본을 지우지 않고 새 버전으로 등록합니다.</small>
+        </label>
+
+        <div class="form-grid">
+          <label><span>문서 제목 <b>*</b></span><input id="title" name="title" type="text" maxlength="150" required placeholder="예: 주민등록 등·초본 발급"></label>
+          <label><span>업무 분류 <b>*</b></span><input id="category" name="category" type="text" maxlength="80" list="categoryOptions" required placeholder="예: 주민등록시스템"><datalist id="categoryOptions"></datalist></label>
+        </div>
+        <label><span>담당부서 <b>*</b></span><input id="department" name="department" type="text" maxlength="120" required placeholder="예: 구청 마을자치과"></label>
+        <label><span>문서 요약</span><textarea id="summary" name="summary" maxlength="500" rows="3" placeholder="검색 결과에 표시할 핵심 내용을 입력하세요."></textarea></label>
+        <label id="changeNoteLabel"><span>개정사유</span><textarea id="changeNote" name="change_note" maxlength="500" rows="2" placeholder="신규 문서는 생략할 수 있습니다."></textarea></label>
+
+        <div class="file-field">
+          <label class="field-label" for="manualFile">매뉴얼 파일 <b>*</b></label>
+          <div class="drop-zone" id="dropZone">
+            <input id="manualFile" name="file" type="file" accept=".hwp,.hwpx,.pdf,.docx" aria-label="매뉴얼 파일 선택" required>
+            <div class="upload-symbol" aria-hidden="true">↑</div>
+            <strong>파일을 끌어 놓거나 눌러서 선택하세요</strong>
+            <span>HWP · HWPX · PDF · DOCX / 최대 60MB</span>
+            <p id="selectedFile"></p>
+          </div>
+        </div>
+
+        <div class="form-warning">
+          <strong>업로드 전 확인</strong>
+          <p>주민등록번호, 외국인등록번호, 전화번호, 이메일, 계좌·카드·여권·면허번호가 포함되면 전체 업로드가 차단됩니다. 이미지형 PDF처럼 본문 전수검사가 불가능한 파일도 차단됩니다.</p>
+        </div>
+
+        <button class="primary-submit" id="submitButton" type="submit">개인정보 검사 후 등록</button>
+        <div class="upload-result" id="uploadResult" role="status" aria-live="polite"></div>
+      </form>
+
+      <aside class="admin-side">
+        <section class="policy-card">
+          <span>UPLOAD POLICY</span><h2>허용 항목만 수집합니다</h2>
+          <ul><li>제목</li><li>업무 분류</li><li>담당부서</li><li>문서 요약</li><li>개정사유</li></ul>
+          <p>업로드 화면에 정의되지 않은 별도 개인정보 컬럼은 API에서 수집하거나 저장하지 않습니다.</p>
+        </section>
+        <section class="audit-card">
+          <div><h2>최근 검사 기록</h2><button id="loadAuditsButton" type="button">조회</button></div>
+          <p>관리자 인증 후 최근 등록·차단 결과를 확인할 수 있습니다. 탐지된 개인정보 값은 기록하지 않습니다.</p>
+          <div class="audit-list" id="auditList"></div>
+        </section>
+      </aside>
+    </div>
+  </main>
+  <script src="/admin.js"></script>
+</body>
+</html>
