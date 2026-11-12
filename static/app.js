@@ -23,20 +23,8 @@ function adminAuthHeaders(value) {
   return { "X-Admin-Key": `b64:${btoa(binary)}` };
 }
 
-const sourcePages = {
-  "출생·사망": [3, 10],
-  "가족관계시스템": [11, 14],
-  "주민등록시스템": [15, 45],
-  "부동산종합공부": [46, 49],
-  "토지이용계획": [50, 50],
-  "건축행정시스템": [51, 53],
-  "차세대지방세": [54, 59],
-  "부동산공시가격": [60, 60],
-  "부동산거래관리": [61, 62],
-  "외국인정보공동이용": [63, 66],
-  "민원처리운영창구": [67, 70],
-  "자동차등록원부": [71, 71],
-};
+let sourcePages = {};
+let sourceVersion = "";
 
 const resourceLabels = {
   permission: "권한신청서식",
@@ -753,7 +741,7 @@ async function openDocument(identifier, updateUrl = true) {
   const pageRange = documentData.file_type === "sample" ? sourcePages[documentData.category] : null;
   if (pageRange) {
     const [startPage, endPage] = pageRange;
-    const sourceUrl = `/source-manual.pdf?start=${startPage}&end=${endPage}#page=1&view=FitH`;
+    const sourceUrl = `/source-manual.pdf?start=${startPage}&end=${endPage}&v=${encodeURIComponent(sourceVersion)}#page=1&view=FitH`;
     $("#sourcePageRange").textContent = startPage === endPage ? `${startPage}쪽` : `${startPage}~${endPage}쪽`;
     $("#sourceFrame").src = sourceUrl;
     $("#sourceOpenLink").href = sourceUrl;
@@ -997,12 +985,17 @@ async function main() {
   bindEvents();
   if (window.matchMedia("(max-width: 760px)").matches) closeCategoryPanel();
   try {
-    const [categoryPayload, permissionPayload, handbookPayload, relatedSitePayload] = await Promise.all([
+    const [categoryPayload, permissionPayload, handbookPayload, relatedSitePayload, sourcePayload] = await Promise.all([
       api("/api/categories"),
       api("/api/permissions"),
       api("/api/handbooks"),
       api("/api/related-sites"),
+      api("/api/source-manual").catch(() => null),
     ]);
+    if (sourcePayload?.available) {
+      sourcePages = Object.fromEntries(sourcePayload.pages.map((item) => [item.category, [item.start, item.end]]));
+      sourceVersion = sourcePayload.version || "";
+    }
     state.categories = categoryPayload.items;
     state.permissions = permissionPayload.items;
     state.handbooks = handbookPayload.items;

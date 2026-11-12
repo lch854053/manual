@@ -1,15 +1,15 @@
 const $ = (selector) => document.querySelector(selector);
 let documents = [];
 
-function credentials() {
-  const bytes = new TextEncoder().encode($("#adminKey").value);
+function credentials(selector = "#adminKey") {
+  const bytes = new TextEncoder().encode($(selector).value);
   let binary = "";
   bytes.forEach((byte) => { binary += String.fromCharCode(byte); });
   return { "X-Admin-Key": `b64:${btoa(binary)}` };
 }
 
-function setResult(type, title, message, findings = []) {
-  const box = $("#uploadResult");
+function setResult(type, title, message, findings = [], target = "#uploadResult") {
+  const box = $(target);
   box.className = `upload-result show ${type}`;
   box.replaceChildren();
   const heading = document.createElement("strong");
@@ -157,7 +157,141 @@ async function loadAudits() {
   }
 }
 
+let sourceInfo = null;
+
+function sourceViewUrl(start, end) {
+  const version = encodeURIComponent(sourceInfo?.version || "");
+  return `/source-manual.pdf?start=${start}&end=${end}&v=${version}#page=1&view=FitH`;
+}
+
+function renderSourceStatus() {
+  const status = $("#sourceStatus");
+  status.classList.toggle("missing", !sourceInfo?.available);
+  if (!sourceInfo?.available) {
+    status.textContent = "아직 원본 PDF가 없습니다. 새 원본 PDF를 올리고 쪽수를 입력하세요.";
+    return;
+  }
+  const updated = new Date(sourceInfo.updated_at).toLocaleString("ko-KR");
+  const bytes = sourceInfo.size_bytes;
+  const size = bytes >= 1024 * 1024 ? `${(bytes / 1024 / 1024).toFixed(1)}MB` : `${Math.max(1, Math.round(bytes / 1024))}KB`;
+  status.textContent = `현재 원본은 전체 ${sourceInfo.page_count}쪽, ${size}이며 ${updated}에 반영되었습니다.`;
+}
+
+function updateSourceRow(row) {
+  const start = Number(row.querySelector("[data-field=start]").value);
+  const end = Number(row.querySelector("[data-field=end]").value);
+  const link = row.querySelector("a");
+  const valid = Number.isInteger(start) && Number.isInteger(end) && start >= 1 && end >= start;
+  const fits = valid && sourceInfo?.available && end <= sourceInfo.page_count;
+  row.querySelectorAll("input").forEach((input) => input.classList.toggle("invalid", !valid));
+  if (fits) {
+    link.href = sourceViewUrl(start, end);
+    link.removeAttribute("aria-disabled");
+  } else {
+    link.removeAttribute("href");
+    link.setAttribute("aria-disabled", "true");
+  }
+}
+
+function renderSourceRows() {
+  const container = $("#sourcePageRows");
+  container.replaceChildren();
+  (sourceInfo?.pages || []).forEach((item) => {
+    const row = document.createElement("div");
+    row.className = "source-page-row";
+    row.dataset.category = item.category;
+    const name = document.createElement("strong");
+    name.textContent = item.category;
+    const inputs = ["start", "end"].map((field) => {
+      const input = document.createElement("input");
+      input.type = "number";
+      input.min = "1";
+      input.step = "1";
+      input.required = true;
+      input.value = item[field];
+      input.dataset.field = field;
+      input.setAttribute("aria-label", `${item.category} ${field === "start" ? "시작 쪽" : "끝 쪽"}`);
+      input.addEventListener("input", () => updateSourceRow(row));
+      return input;
+    });
+    const view = document.createElement("a");
+    view.textContent = "보기";
+    view.target = "_blank";
+    view.rel = "noopener";
+    view.title = "현재 원본에서 이 쪽수를 새 창으로 확인";
+    row.append(name, ...inputs, view);
+    container.appendChild(row);
+    updateSourceRow(row);
+  });
+}
+
+async function loadSourceManual() {
+  try {
+    const response = await fetch("/api/source-manual");
+    if (!response.ok) throw new Error();
+    sourceInfo = await response.json();
+    renderSourceStatus();
+    renderSourceRows();
+  } catch {
+    $("#sourceStatus").textContent = "원본 정보를 불러오지 못했습니다. 서버 상태를 확인하세요.";
+  }
+}
+
+function collectSourcePages() {
+  return [...document.querySelectorAll(".source-page-row")].map((row) => ({
+    category: row.dataset.category,
+    start: Number(row.querySelector("[data-field=start]").value),
+    end: Number(row.querySelector("[data-field=end]").value),
+  }));
+}
+
+async function saveSourceManual(event) {
+  event.preventDefault();
+  const file = $("#sourceFile").files[0];
+  if (file && file.size > 60 * 1024 * 1024) {
+    setResult("error", "저장하지 못했습니다", "파일 크기는 60MB를 초과할 수 없습니다.", [], "#sourceResult");
+    return;
+  }
+  if (file && !window.confirm("원본 매뉴얼을 새 PDF로 교체합니다. 이전 원본은 자동 보관됩니다. 계속할까요?")) return;
+  const button = $("#sourceSubmit");
+  button.disabled = true;
+  button.textContent = file ? "새 원본을 검사하고 저장하는 중..." : "쪽수를 저장하는 중...";
+  $("#sourceResult").className = "upload-result";
+  const data = new FormData();
+  data.append("admin_name", $("#sourceAdminName").value);
+  data.append("pages", JSON.stringify(collectSourcePages()));
+  if (file) data.append("file", file);
+  try {
+    const response = await fetch("/api/admin/source-manual", { method: "POST", headers: credentials("#sourceAdminKey"), body: data });
+    const payload = await response.json();
+    if (!response.ok) {
+      const detail = payload.detail;
+      throw new Error(typeof detail === "string" ? detail : detail?.[0]?.msg || "저장하지 못했습니다.");
+    }
+    sourceInfo = payload;
+    renderSourceStatus();
+    renderSourceRows();
+    $("#sourceFile").value = "";
+    setResult("success", "저장했습니다", `${payload.message} 열람 화면을 새로고침하면 바로 반영됩니다.`, [], "#sourceResult");
+  } catch (error) {
+    setResult("error", "저장하지 못했습니다", error.message, [], "#sourceResult");
+  } finally {
+    button.disabled = false;
+    button.textContent = "원본과 쪽수 저장";
+  }
+}
+
+function syncCredentialFields() {
+  [["#adminKey", "#sourceAdminKey"], ["#adminName", "#sourceAdminName"]].forEach(([first, second]) => {
+    $(first).addEventListener("input", () => { $(second).value = $(first).value; });
+    $(second).addEventListener("input", () => { $(first).value = $(second).value; });
+  });
+}
+
 loadDocumentOptions();
+loadSourceManual();
+syncCredentialFields();
+$("#sourceForm").addEventListener("submit", saveSourceManual);
 bindExistingDocument();
 bindFileZone();
 $("#uploadForm").addEventListener("submit", upload);

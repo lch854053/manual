@@ -2,10 +2,13 @@ from __future__ import annotations
 
 import hashlib
 import io
+import json
 import os
 import re
 import secrets
+import shutil
 import sqlite3
+import threading
 import unicodedata
 from base64 import b64decode
 from contextlib import asynccontextmanager
@@ -51,6 +54,24 @@ DEFAULT_RELATED_SITES = [
     ("모바일 신분증 진위확인·사본저장 시스템", "https://ive.mobileid.go.kr/userLogin.do"),
 ]
 HANDBOOK_RECORDED_FINDINGS = frozenset({"주민·외국인등록번호", "휴대전화번호", "주소"})
+
+# 업무매뉴얼 '원문 서식' 탭에서 업무별로 보여줄 원본 PDF 쪽수 (관리자 화면에서 변경 가능)
+DEFAULT_SOURCE_PAGES: dict[str, tuple[int, int]] = {
+    "출생·사망": (3, 10),
+    "가족관계시스템": (11, 14),
+    "주민등록시스템": (15, 45),
+    "부동산종합공부": (46, 49),
+    "토지이용계획": (50, 50),
+    "건축행정시스템": (51, 53),
+    "차세대지방세": (54, 59),
+    "부동산공시가격": (60, 60),
+    "부동산거래관리": (61, 62),
+    "외국인정보공동이용": (63, 66),
+    "민원처리운영창구": (67, 70),
+    "자동차등록원부": (71, 71),
+}
+MAX_SOURCE_RANGE_PAGES = 100
+SOURCE_MANUAL_LOCK = threading.Lock()
 
 HEADING_PATTERN = re.compile(
     r"^(?:(?P<chapter>[ⅠⅡⅢⅣⅤⅥⅦⅧⅨⅩⅪⅫ]+\.)|(?P<section>▣\s*)|(?P<number>\d+\.\s+)|(?P<sub>\d+\)\s+))(?P<title>.+)$"
@@ -680,6 +701,104 @@ async def admin_javascript() -> FileResponse:
     return FileResponse(STATIC_DIR / "admin.js", media_type="text/javascript")
 
 
+def source_pages_path() -> Path:
+    return DATA_DIR / "source-pages.json"
+
+
+def source_archive_dir() -> Path:
+    return DATA_DIR / "source-manual-archive"
+
+
+def load_source_pages() -> dict[str, tuple[int, int]]:
+    pages = dict(DEFAULT_SOURCE_PAGES)
+    try:
+        stored = json.loads(source_pages_path().read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return pages
+    if not isinstance(stored, dict):
+        return pages
+    for category, value in stored.items():
+        if category not in pages or not isinstance(value, list) or len(value) != 2:
+            continue
+        start, end = value
+        if isinstance(start, int) and isinstance(end, int) and 1 <= start <= end:
+            pages[category] = (start, end)
+    return pages
+
+
+def pdf_page_count(source: Path | bytes) -> int:
+    reader = PdfReader(io.BytesIO(source) if isinstance(source, bytes) else source, strict=False)
+    return len(reader.pages)
+
+
+def source_manual_info() -> dict[str, Any]:
+    pages = load_source_pages()
+    info: dict[str, Any] = {
+        "available": False,
+        "page_count": None,
+        "size_bytes": None,
+        "updated_at": None,
+        "version": "",
+        "pages": [{"category": category, "start": start, "end": end} for category, (start, end) in pages.items()],
+    }
+    if SOURCE_MANUAL_PATH.is_file():
+        stat = SOURCE_MANUAL_PATH.stat()
+        try:
+            page_count = pdf_page_count(SOURCE_MANUAL_PATH)
+        except Exception:
+            page_count = None
+        info.update(
+            available=page_count is not None,
+            page_count=page_count,
+            size_bytes=stat.st_size,
+            updated_at=datetime.fromtimestamp(stat.st_mtime, UTC).isoformat(timespec="seconds"),
+            version=str(int(stat.st_mtime)),
+        )
+    return info
+
+
+def parse_source_pages(raw: str) -> dict[str, tuple[int, int]]:
+    try:
+        items = json.loads(raw)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail="쪽수 정보를 읽을 수 없습니다.") from exc
+    if not isinstance(items, list):
+        raise HTTPException(status_code=422, detail="쪽수 정보를 읽을 수 없습니다.")
+    pages = dict(load_source_pages())
+    for item in items:
+        if not isinstance(item, dict) or item.get("category") not in DEFAULT_SOURCE_PAGES:
+            raise HTTPException(status_code=422, detail="알 수 없는 업무 분류가 포함되어 있습니다.")
+        category = item["category"]
+        start, end = item.get("start"), item.get("end")
+        if not isinstance(start, int) or not isinstance(end, int) or start < 1 or end < 1:
+            raise HTTPException(status_code=422, detail=f"{category}: 시작 쪽과 끝 쪽을 1 이상의 숫자로 입력하세요.")
+        if end < start:
+            raise HTTPException(status_code=422, detail=f"{category}: 끝 쪽이 시작 쪽보다 앞에 있습니다.")
+        if end - start + 1 > MAX_SOURCE_RANGE_PAGES:
+            raise HTTPException(status_code=422, detail=f"{category}: 한 업무는 최대 {MAX_SOURCE_RANGE_PAGES}쪽까지 지정할 수 있습니다.")
+        pages[category] = (start, end)
+    return pages
+
+
+def save_source_manual(content: bytes | None, pages: dict[str, tuple[int, int]]) -> None:
+    with SOURCE_MANUAL_LOCK:
+        DATA_DIR.mkdir(parents=True, exist_ok=True)
+        if content is not None:
+            SOURCE_MANUAL_PATH.parent.mkdir(parents=True, exist_ok=True)
+            if SOURCE_MANUAL_PATH.is_file():
+                archive = source_archive_dir()
+                archive.mkdir(parents=True, exist_ok=True)
+                stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+                shutil.copy2(SOURCE_MANUAL_PATH, archive / f"source-manual-{stamp}.pdf")
+            temporary = SOURCE_MANUAL_PATH.with_name(f".{SOURCE_MANUAL_PATH.name}.{uuid4().hex}.tmp")
+            temporary.write_bytes(content)
+            os.replace(temporary, SOURCE_MANUAL_PATH)
+        payload = {category: [start, end] for category, (start, end) in pages.items()}
+        temporary_pages = source_pages_path().with_name(f".source-pages.{uuid4().hex}.tmp")
+        temporary_pages.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+        os.replace(temporary_pages, source_pages_path())
+
+
 def extract_source_pages(start_page: int, end_page: int) -> bytes:
     reader = PdfReader(SOURCE_MANUAL_PATH, strict=False)
     if end_page > len(reader.pages):
@@ -701,7 +820,7 @@ async def source_manual(
         raise HTTPException(status_code=404, detail="원본 업무매뉴얼 PDF를 찾을 수 없습니다.")
     if start is not None:
         end = end or start
-        if end < start or end - start > 50:
+        if end < start or end - start + 1 > MAX_SOURCE_RANGE_PAGES:
             raise HTTPException(status_code=422, detail="원문 페이지 범위가 올바르지 않습니다.")
         content = await run_in_threadpool(extract_source_pages, start, end)
         return Response(
@@ -715,6 +834,67 @@ async def source_manual(
         filename="통합민원-업무매뉴얼.pdf",
         content_disposition_type="inline",
     )
+
+
+@app.get("/api/source-manual")
+async def source_manual_status() -> dict[str, Any]:
+    return await run_in_threadpool(source_manual_info)
+
+
+@app.post("/api/admin/source-manual")
+async def replace_source_manual(
+    admin_name: Annotated[str, Form()],
+    pages: Annotated[str, Form()],
+    file: Annotated[UploadFile | None, File()] = None,
+    _: None = Depends(require_admin),
+) -> dict[str, Any]:
+    actor = normalize_metadata(admin_name, "담당자명", 50)
+    new_pages = parse_source_pages(pages)
+    content: bytes | None = None
+    digest = ""
+    if file is not None and file.filename:
+        filename = normalize_metadata(Path(file.filename).name, "파일명", 255)
+        if Path(filename).suffix.lower() != ".pdf":
+            raise HTTPException(status_code=422, detail="원본 매뉴얼은 PDF 파일만 올릴 수 있습니다.")
+        content = await file.read(MAX_UPLOAD_BYTES + 1)
+        await file.close()
+        digest = hashlib.sha256(content).hexdigest()
+        audit_filename = f"source-manual-{digest[:12]}.pdf"
+        try:
+            inspection = await run_in_threadpool(
+                inspect_document,
+                filename,
+                content,
+                allow_pdf_images=True,
+                allow_pdf_actions=True,
+                allow_document_images=True,
+                blocked_finding_kinds=HANDBOOK_RECORDED_FINDINGS,
+                allow_blocked_findings=True,
+            )
+        except DocumentRejected as exc:
+            await run_in_threadpool(audit_upload, audit_filename, "blocked", exc.code, "", digest, actor)
+            raise HTTPException(status_code=422, detail=exc.message) from exc
+        if inspection.file_type != "pdf":
+            raise HTTPException(status_code=422, detail="원본 매뉴얼은 PDF 파일만 올릴 수 있습니다.")
+        page_count = await run_in_threadpool(pdf_page_count, content)
+    else:
+        if not SOURCE_MANUAL_PATH.is_file():
+            raise HTTPException(status_code=422, detail="아직 원본 PDF가 없습니다. 새 원본 PDF를 함께 올려 주세요.")
+        page_count = await run_in_threadpool(pdf_page_count, SOURCE_MANUAL_PATH)
+    over = [category for category, (_, end) in new_pages.items() if end > page_count]
+    if over:
+        raise HTTPException(
+            status_code=422,
+            detail=f"원본 PDF는 {page_count}쪽까지 있습니다. 쪽수를 다시 확인하세요: {', '.join(over)}",
+        )
+    try:
+        await run_in_threadpool(save_source_manual, content, new_pages)
+    except OSError as exc:
+        raise HTTPException(status_code=500, detail="원본 매뉴얼을 저장하지 못했습니다.") from exc
+    if content is not None:
+        await run_in_threadpool(audit_upload, f"source-manual-{digest[:12]}.pdf", "accepted", "SOURCE_MANUAL_REPLACED", "", digest, actor)
+    message = "원본 매뉴얼과 쪽수를 저장했습니다." if content is not None else "쪽수를 저장했습니다."
+    return {"message": message, **(await run_in_threadpool(source_manual_info))}
 
 
 @app.get("/health")

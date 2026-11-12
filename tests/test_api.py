@@ -667,3 +667,104 @@ def test_handbook_accepts_files_larger_than_30mb(tmp_path, monkeypatch):
     with TestClient(app) as client:
         response = _upload_handbook_pdf(client, padded)
         assert response.status_code == 200, response.text
+
+
+def _configure_source(tmp_path, monkeypatch, pages=72):
+    configure_paths(tmp_path, monkeypatch)
+    source = tmp_path / "source-manual.pdf"
+    if pages:
+        source.write_bytes(_handbook_pdf(pages=pages))
+    monkeypatch.setattr("app.main.SOURCE_MANUAL_PATH", source)
+    return source
+
+
+def _save_source(client, pages, content=None, key="test-admin-key"):
+    import json
+
+    files = {"file": ("새매뉴얼.pdf", content, "application/pdf")} if content is not None else None
+    return client.post(
+        "/api/admin/source-manual",
+        headers={"X-Admin-Key": key},
+        data={"admin_name": "테스트 담당자", "pages": json.dumps(pages, ensure_ascii=False)},
+        files=files,
+    )
+
+
+def test_source_manual_status_lists_default_pages(tmp_path, monkeypatch):
+    _configure_source(tmp_path, monkeypatch)
+    with TestClient(app) as client:
+        payload = client.get("/api/source-manual").json()
+        assert payload["available"] is True
+        assert payload["page_count"] == 72
+        pages = {item["category"]: (item["start"], item["end"]) for item in payload["pages"]}
+        assert pages["주민등록시스템"] == (15, 45)
+        assert len(pages) == 12
+
+
+def test_source_manual_replacement_archives_previous_and_updates_pages(tmp_path, monkeypatch):
+    source = _configure_source(tmp_path, monkeypatch)
+    original = source.read_bytes()
+    with TestClient(app) as client:
+        response = _save_source(
+            client,
+            [{"category": "주민등록시스템", "start": 17, "end": 47}],
+            content=_handbook_pdf(pages=80),
+        )
+        assert response.status_code == 200, response.text
+        payload = response.json()
+        assert payload["page_count"] == 80
+        pages = {item["category"]: (item["start"], item["end"]) for item in payload["pages"]}
+        assert pages["주민등록시스템"] == (17, 47)
+        assert pages["출생·사망"] == (3, 10)
+        archived = list((tmp_path / "source-manual-archive").glob("source-manual-*.pdf"))
+        assert len(archived) == 1 and archived[0].read_bytes() == original
+        assert client.get("/source-manual.pdf?start=17&end=47").status_code == 200
+
+
+def test_source_manual_pages_only_update(tmp_path, monkeypatch):
+    source = _configure_source(tmp_path, monkeypatch)
+    before = source.read_bytes()
+    with TestClient(app) as client:
+        response = _save_source(client, [{"category": "토지이용계획", "start": 50, "end": 51}])
+        assert response.status_code == 200, response.text
+        assert source.read_bytes() == before
+        assert not (tmp_path / "source-manual-archive").exists()
+        pages = {item["category"]: (item["start"], item["end"]) for item in client.get("/api/source-manual").json()["pages"]}
+        assert pages["토지이용계획"] == (50, 51)
+
+
+def test_source_manual_rejects_bad_pages_and_keeps_original(tmp_path, monkeypatch):
+    source = _configure_source(tmp_path, monkeypatch)
+    before = source.read_bytes()
+    with TestClient(app) as client:
+        too_far = _save_source(client, [{"category": "자동차등록원부", "start": 71, "end": 75}], content=_handbook_pdf(pages=72))
+        assert too_far.status_code == 422 and "72쪽" in too_far.json()["detail"]
+        reversed_range = _save_source(client, [{"category": "출생·사망", "start": 10, "end": 3}])
+        assert reversed_range.status_code == 422
+        unknown = _save_source(client, [{"category": "없는업무", "start": 1, "end": 2}])
+        assert unknown.status_code == 422
+        not_pdf = client.post(
+            "/api/admin/source-manual",
+            headers={"X-Admin-Key": "test-admin-key"},
+            data={"admin_name": "테스트 담당자", "pages": "[]"},
+            files={"file": ("매뉴얼.hwpx", hwpx_bytes("본문"), "application/hwp+zip")},
+        )
+        assert not_pdf.status_code == 422
+        assert source.read_bytes() == before
+
+
+def test_source_manual_requires_admin_key(tmp_path, monkeypatch):
+    _configure_source(tmp_path, monkeypatch)
+    with TestClient(app) as client:
+        response = _save_source(client, [], key="wrong-key")
+        assert response.status_code == 401
+
+
+def test_source_manual_upload_works_when_no_original_exists(tmp_path, monkeypatch):
+    _configure_source(tmp_path, monkeypatch, pages=0)
+    with TestClient(app) as client:
+        assert client.get("/api/source-manual").json()["available"] is False
+        assert _save_source(client, []).status_code == 422
+        response = _save_source(client, [], content=_handbook_pdf(pages=72))
+        assert response.status_code == 200, response.text
+        assert response.json()["available"] is True

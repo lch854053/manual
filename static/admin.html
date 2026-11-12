@@ -89,6 +89,34 @@
         </section>
       </aside>
     </div>
+
+    <form class="upload-card source-card" id="sourceForm">
+      <div class="card-heading"><span>업무매뉴얼 원문 서식</span><h2>원본 매뉴얼 교체</h2></div>
+      <p class="source-status" id="sourceStatus" role="status">현재 원본 정보를 불러오는 중입니다.</p>
+
+      <div class="form-grid authentication-grid">
+        <label><span>관리자 키 <b>*</b></span><input id="sourceAdminKey" type="password" autocomplete="current-password" required placeholder="서버에 설정된 ADMIN_KEY"></label>
+        <label><span>담당자명 <b>*</b></span><input id="sourceAdminName" type="text" maxlength="50" required placeholder="예: 홍길동 주무관"></label>
+      </div>
+
+      <label><span>새 원본 PDF</span>
+        <input id="sourceFile" type="file" accept=".pdf,application/pdf">
+        <small>쪽수만 고칠 때는 비워 두세요. PDF 최대 60MB.</small>
+      </label>
+
+      <div class="source-pages">
+        <div class="source-pages-head" aria-hidden="true"><span>업무</span><span>시작 쪽</span><span>끝 쪽</span><span></span></div>
+        <div id="sourcePageRows"></div>
+      </div>
+
+      <div class="form-warning">
+        <strong>교체 전 확인</strong>
+        <p>새 PDF에서 업무별로 몇 쪽부터 몇 쪽까지인지 확인해 입력하세요. 교체하면 이전 원본은 프로젝트 폴더의 data\source-manual-archive에 날짜별로 자동 보관됩니다.</p>
+      </div>
+
+      <button class="primary-submit" id="sourceSubmit" type="submit">원본과 쪽수 저장</button>
+      <div class="upload-result" id="sourceResult" role="status" aria-live="polite"></div>
+    </form>
   </main>
   <script src="/admin.js"></script>
 </body>
