@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import hashlib
-import hmac
 import io
 import os
 import re
@@ -51,7 +50,7 @@ DEFAULT_RELATED_SITES = [
     ("웹팩스", "http://102.6.1.119:8080/WebFax/users/login"),
     ("모바일 신분증 진위확인·사본저장 시스템", "https://ive.mobileid.go.kr/userLogin.do"),
 ]
-HANDBOOK_BLOCKED_FINDINGS = frozenset({"주민·외국인등록번호", "휴대전화번호", "주소"})
+HANDBOOK_RECORDED_FINDINGS = frozenset({"주민·외국인등록번호", "휴대전화번호", "주소"})
 
 HEADING_PATTERN = re.compile(
     r"^(?:(?P<chapter>[ⅠⅡⅢⅣⅤⅥⅦⅧⅨⅩⅪⅫ]+\.)|(?P<section>▣\s*)|(?P<number>\d+\.\s+)|(?P<sub>\d+\)\s+))(?P<title>.+)$"
@@ -121,11 +120,6 @@ def decode_admin_key(value: str) -> str:
 
 def admin_key_matches(provided: str, configured: str) -> bool:
     return bool(provided) and secrets.compare_digest(provided.encode("utf-8"), configured.encode("utf-8"))
-
-
-def handbook_confirmation_token(digest: str) -> str:
-    configured_key = os.getenv("ADMIN_KEY", "")
-    return hmac.new(configured_key.encode("utf-8"), f"handbook:{digest}".encode("ascii"), hashlib.sha256).hexdigest()
 
 
 class SecurityHeadersMiddleware(BaseHTTPMiddleware):
@@ -901,7 +895,6 @@ async def upload_handbook_attachment(
     file: Annotated[UploadFile, File(...)],
     category_slug: Annotated[str, Form(...)],
     admin_name: Annotated[str, Form()] = "담당자",
-    personal_information_confirmation: Annotated[str, Form()] = "",
     _: None = Depends(require_admin),
 ) -> dict[str, Any]:
     if not any(item["slug"] == category_slug for item in HANDBOOK_CATEGORIES):
@@ -913,35 +906,12 @@ async def upload_handbook_attachment(
     content = await file.read(MAX_UPLOAD_BYTES + 1)
     await file.close()
     digest = hashlib.sha256(content).hexdigest()
-    confirmation_is_valid = bool(personal_information_confirmation) and secrets.compare_digest(
-        personal_information_confirmation,
-        handbook_confirmation_token(digest),
-    )
     audit_filename = f"handbook-{digest[:12]}{Path(filename).suffix.lower()}"
     metadata_findings = tuple(
         finding
         for finding in scan_personal_information([TextPart("첨부 정보", f"{filename}\n{actor}")])
-        if finding.kind in HANDBOOK_BLOCKED_FINDINGS
+        if finding.kind in HANDBOOK_RECORDED_FINDINGS
     )
-    if metadata_findings:
-        detected = ", ".join(sorted({finding.kind for finding in metadata_findings}))
-        actor_findings = tuple(
-            finding
-            for finding in scan_personal_information([TextPart("담당자명", actor)])
-            if finding.kind in HANDBOOK_BLOCKED_FINDINGS
-        )
-        safe_actor = "차단된 입력" if actor_findings else actor
-        await run_in_threadpool(
-            audit_upload, audit_filename, "blocked", "PERSONAL_INFORMATION_DETECTED", detected, digest, safe_actor,
-        )
-        raise HTTPException(status_code=422, detail={
-            "code": "PERSONAL_INFORMATION_DETECTED",
-            "message": "첨부 정보에서 개인정보 패턴이 탐지되어 업로드를 차단했습니다.",
-            "findings": [
-                {"type": finding.kind, "location": finding.location, "count": finding.count}
-                for finding in metadata_findings[:30]
-            ],
-        })
     try:
         inspection = await run_in_threadpool(
             inspect_document,
@@ -950,8 +920,8 @@ async def upload_handbook_attachment(
             allow_pdf_images=True,
             allow_pdf_actions=True,
             allow_document_images=True,
-            blocked_finding_kinds=HANDBOOK_BLOCKED_FINDINGS,
-            allow_blocked_findings=confirmation_is_valid,
+            blocked_finding_kinds=HANDBOOK_RECORDED_FINDINGS,
+            allow_blocked_findings=True,
         )
     except DocumentRejected as exc:
         detected = ", ".join(sorted({finding.kind for finding in exc.findings}))
@@ -959,7 +929,6 @@ async def upload_handbook_attachment(
         raise HTTPException(status_code=422, detail={
             "code": exc.code,
             "message": exc.message,
-            "confirmation_token": handbook_confirmation_token(digest) if exc.code == "PERSONAL_INFORMATION_DETECTED" else "",
             "findings": [
                 {"type": finding.kind, "location": finding.location, "count": finding.count}
                 for finding in exc.findings[:30]
@@ -976,14 +945,14 @@ async def upload_handbook_attachment(
             filename=filename,
             actor=actor,
         )
-        detected = ", ".join(sorted({finding.kind for finding in inspection.findings}))
-        reason_code = "PERSONAL_INFORMATION_CONFIRMED" if inspection.findings else ""
+        recorded_findings = (*metadata_findings, *inspection.findings)
+        detected = ", ".join(sorted({finding.kind for finding in recorded_findings}))
+        reason_code = "PERSONAL_INFORMATION_RECORDED" if recorded_findings else ""
         await run_in_threadpool(audit_upload, audit_filename, "accepted", reason_code, detected, digest, actor)
     except Exception as exc:
         await run_in_threadpool(audit_upload, audit_filename, "failed", "STORAGE_ERROR", "", digest, actor)
         raise HTTPException(status_code=500, detail="검사는 통과했으나 편람 첨부파일 저장에 실패했습니다.") from exc
-    message = "개인정보 패턴 확인 기록과 함께 편람 자료가 첨부되었습니다." if inspection.findings else "편람 자료가 첨부되었습니다."
-    return {"message": message, "attachment": attachment}
+    return {"message": "편람 자료가 첨부되었습니다.", "attachment": attachment}
 
 
 @app.delete("/api/admin/handbook-attachments/{attachment_id}")

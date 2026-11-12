@@ -178,10 +178,6 @@ a { color: inherit; }
 .permission-upload-result { margin-top: 9px; color: #63767d; font-size: 10px; }
 .permission-upload-result.success { color: var(--success); }
 .permission-upload-result.error { color: var(--danger); }
-.permission-upload-box .handbook-confirm { display: flex; align-items: flex-start; gap: 8px; margin: 11px 0; padding: 10px; border: 1px solid #d8b9b9; background: #fff5f5; }
-.permission-upload-box .handbook-confirm[hidden] { display: none; }
-.permission-upload-box .handbook-confirm input { flex: 0 0 auto; width: 16px; height: 16px; margin: 1px 0 0; padding: 0; }
-.permission-upload-box .handbook-confirm span { margin: 0; color: #854d4d; line-height: 1.5; }
 .permission-upload-result ul { margin: 7px 0 0; padding-left: 18px; }
 .handbook-panel { padding: 32px; background: rgba(227,226,180,.38); }
 .handbook-paper { min-width: 0; max-width: 850px; min-height: 520px; margin: 0 auto; padding: 42px 48px 55px; border: 1px solid #b9c5c9; background: #fff; box-shadow: 0 10px 28px rgba(10,44,59,.1); }

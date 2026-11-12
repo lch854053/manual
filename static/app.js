@@ -857,11 +857,6 @@ function bindEvents() {
       submit.disabled = false;
     }
   });
-  $("#handbookFile").addEventListener("change", () => {
-    delete $("#handbookUploadForm").dataset.confirmationToken;
-    $("#handbookConfirmPersonalInformation").checked = false;
-    $("#handbookConfirmBox").hidden = true;
-  });
   $("#handbookUploadForm").addEventListener("submit", async (event) => {
     event.preventDefault();
     const submit = event.currentTarget.querySelector('button[type="submit"]');
@@ -877,10 +872,6 @@ function bindEvents() {
     const form = new FormData();
     form.append("category_slug", state.currentHandbook.slug);
     form.append("admin_name", adminName);
-    const confirmationToken = event.currentTarget.dataset.confirmationToken || "";
-    if ($("#handbookConfirmPersonalInformation").checked && confirmationToken) {
-      form.append("personal_information_confirmation", confirmationToken);
-    }
     form.append("file", file);
     submit.disabled = true;
     result.textContent = "개인정보와 문서 구조를 검사하고 있습니다.";
@@ -896,14 +887,10 @@ function bindEvents() {
         const detail = payload.detail;
         const error = new Error(typeof detail === "string" ? detail : detail?.message || "편람 자료 등록에 실패했습니다.");
         error.findings = typeof detail === "object" ? detail?.findings || [] : [];
-        error.confirmationToken = typeof detail === "object" ? detail?.confirmation_token || "" : "";
         throw error;
       }
       await reloadHandbook();
       $("#handbookFile").value = "";
-      $("#handbookConfirmPersonalInformation").checked = false;
-      $("#handbookConfirmBox").hidden = true;
-      delete event.currentTarget.dataset.confirmationToken;
       result.textContent = payload.message;
       result.className = "permission-upload-result success";
     } catch (error) {
@@ -916,11 +903,6 @@ function bindEvents() {
           list.append(item);
         });
         result.append(list);
-      }
-      if (error.confirmationToken) {
-        event.currentTarget.dataset.confirmationToken = error.confirmationToken;
-        $("#handbookConfirmPersonalInformation").checked = false;
-        $("#handbookConfirmBox").hidden = false;
       }
       result.className = "permission-upload-result error";
     } finally {
