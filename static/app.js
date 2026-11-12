@@ -115,7 +115,7 @@ function renderCategories() {
   const items = permissionMode
     ? state.permissions.map((item) => ({ name: item.title, key: item.slug }))
     : handbookMode
-      ? state.handbooks.map((item) => ({ name: item.title, key: item.slug }))
+      ? state.handbooks.map((item) => ({ name: item.title, key: item.slug, lines: item.label_lines }))
       : state.categories.map((item) => ({ name: item.name, key: item.name, count: item.count }));
   const total = permissionMode || handbookMode ? items.length : state.categories.reduce((sum, item) => sum + item.count, 0);
   $("#categoryEyebrow").textContent = permissionMode ? "권한 신청" : handbookMode ? "업무 편람" : "업무 매뉴얼";
@@ -129,7 +129,16 @@ function renderCategories() {
     const number = document.createElement("i");
     number.textContent = String(index + 1).padStart(2, "0");
     const label = document.createElement("span");
-    label.textContent = item.name;
+    if (Array.isArray(item.lines) && item.lines.length > 1) {
+      item.lines.forEach((line, lineIndex) => {
+        if (lineIndex > 0) label.appendChild(document.createElement("br"));
+        label.appendChild(document.createTextNode(line));
+      });
+      label.classList.add("multiline");
+      button.title = item.name;
+    } else {
+      label.textContent = item.name;
+    }
     button.append(number, label);
     button.addEventListener("click", () => {
       const action = permissionMode ? openPermission(item.key) : handbookMode ? openHandbook(item.key) : openCategory(item.name);

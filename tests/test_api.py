@@ -6,6 +6,7 @@ from base64 import b64encode
 os.environ["ADMIN_KEY"] = "test-admin-key"
 os.environ["LOAD_SAMPLE_DATA"] = "false"
 
+import pytest
 from fastapi.testclient import TestClient
 from pypdf import PdfReader, PdfWriter
 from pypdf.generic import DecodedStreamObject, DictionaryObject, NameObject, NumberObject, RectangleObject
@@ -579,3 +580,90 @@ def test_personal_information_in_actor_is_not_written_to_audit_log(tmp_path, mon
         ).json()["items"]
         assert audits[0]["actor"] == "차단된 입력"
         assert "010-1234-5678" not in str(audits[0])
+
+
+def test_upload_size_limit_is_60mb():
+    from app.document_scanner import MAX_UPLOAD_BYTES
+
+    assert MAX_UPLOAD_BYTES == 60 * 1024 * 1024
+    with pytest.raises(DocumentRejected) as rejected:
+        inspect_document("큰파일.pdf", b"%PDF-" + b"0" * MAX_UPLOAD_BYTES)
+    assert rejected.value.code == "FILE_TOO_LARGE"
+    assert "60MB" in str(rejected.value)
+
+
+def test_handbook_long_titles_have_two_line_labels(tmp_path, monkeypatch):
+    configure_paths(tmp_path, monkeypatch)
+    with TestClient(app) as client:
+        items = {item["slug"]: item for item in client.get("/api/handbooks").json()["items"]}
+        assert items["inheritance-one-stop"]["label_lines"] == ["안심상속 원스톱서비스", "재산조회"]
+        assert items["real-estate-transaction"]["label_lines"] == ["부동산거래관리시스템", "(임대차신고·확정일자)"]
+        assert "label_lines" not in items["birth-death"]
+
+
+def _handbook_pdf(pages=30, open_action=None, link_action=None):
+    from pypdf.generic import ArrayObject
+
+    writer = PdfWriter()
+    for _ in range(pages):
+        writer.add_blank_page(595, 842)
+    if open_action == "page":
+        writer._root_object[NameObject("/OpenAction")] = ArrayObject([writer.pages[0].indirect_reference, NameObject("/Fit")])
+    elif open_action is not None:
+        writer._root_object[NameObject("/OpenAction")] = writer._add_object(open_action)
+    if link_action == "goto":
+        for index, page in enumerate(writer.pages):
+            target = ArrayObject([writer.pages[(index + 5) % pages].indirect_reference, NameObject("/Fit")])
+            annotation = DictionaryObject({
+                NameObject("/Type"): NameObject("/Annot"),
+                NameObject("/Subtype"): NameObject("/Link"),
+                NameObject("/Rect"): RectangleObject([0, 0, 100, 100]),
+                NameObject("/A"): DictionaryObject({NameObject("/S"): NameObject("/GoTo"), NameObject("/D"): target}),
+            })
+            page[NameObject("/Annots")] = ArrayObject([writer._add_object(annotation)])
+    buffer = io.BytesIO()
+    writer.write(buffer)
+    return buffer.getvalue()
+
+
+def _upload_handbook_pdf(client, content, name="편람.pdf"):
+    return client.post(
+        "/api/admin/handbook-attachments",
+        headers={"X-Admin-Key": "test-admin-key"},
+        data={"category_slug": "birth-death", "admin_name": "테스트 담당자"},
+        files={"file": (name, content, "application/pdf")},
+    )
+
+
+def test_handbook_accepts_pdf_with_open_page_setting_and_internal_links(tmp_path, monkeypatch):
+    configure_paths(tmp_path, monkeypatch)
+    with TestClient(app) as client:
+        response = _upload_handbook_pdf(client, _handbook_pdf(open_action="page", link_action="goto"))
+        assert response.status_code == 200, response.text
+
+
+def test_handbook_still_blocks_pdf_javascript_and_launch(tmp_path, monkeypatch):
+    from pypdf.generic import TextStringObject
+
+    configure_paths(tmp_path, monkeypatch)
+    javascript = DictionaryObject({NameObject("/S"): NameObject("/JavaScript"), NameObject("/JS"): TextStringObject("app.alert(1)")})
+    launch = DictionaryObject({NameObject("/S"): NameObject("/Launch"), NameObject("/F"): TextStringObject("cmd.exe")})
+    hidden = DictionaryObject({
+        NameObject("/S"): NameObject("/GoTo"),
+        NameObject("/D"): NameObject("/start"),
+        NameObject("/Next"): javascript,
+    })
+    with TestClient(app) as client:
+        for action in (javascript, launch, hidden):
+            response = _upload_handbook_pdf(client, _handbook_pdf(pages=2, open_action=action))
+            assert response.status_code == 422
+            assert response.json()["detail"]["code"] == "ACTIVE_CONTENT"
+
+
+def test_handbook_accepts_files_larger_than_30mb(tmp_path, monkeypatch):
+    configure_paths(tmp_path, monkeypatch)
+    content = _handbook_pdf(pages=2)
+    padded = content + b"\n%" + b"0" * (40 * 1024 * 1024) + b"\n"
+    with TestClient(app) as client:
+        response = _upload_handbook_pdf(client, padded)
+        assert response.status_code == 200, response.text

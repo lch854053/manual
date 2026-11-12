@@ -103,8 +103,8 @@ async function upload(event) {
   event.preventDefault();
   const file = $("#manualFile").files[0];
   if (!file) return;
-  if (file.size > 30 * 1024 * 1024) {
-    setResult("error", "업로드 차단", "파일 크기는 30MB를 초과할 수 없습니다.");
+  if (file.size > 60 * 1024 * 1024) {
+    setResult("error", "업로드 차단", "파일 크기는 60MB를 초과할 수 없습니다.");
     return;
   }
   const button = $("#submitButton");

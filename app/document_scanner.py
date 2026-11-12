@@ -14,9 +14,9 @@ import olefile
 from defusedxml import ElementTree
 from pypdf import PdfReader
 
-MAX_UPLOAD_BYTES = 30 * 1024 * 1024
+MAX_UPLOAD_BYTES = 60 * 1024 * 1024
 MAX_ARCHIVE_ENTRIES = 5_000
-MAX_UNCOMPRESSED_BYTES = 100 * 1024 * 1024
+MAX_UNCOMPRESSED_BYTES = 200 * 1024 * 1024
 MAX_DOCUMENT_PAGES = 1_000
 MAX_EXTRACTED_TEXT_CHARS = 10_000_000
 MAX_HWP_SECTION_BYTES = 50 * 1024 * 1024
@@ -144,32 +144,59 @@ def _xml_text(payload: bytes, *, include_text: bool = True, include_attributes: 
     return extracted
 
 
-def _validate_pdf_action(value, location: str, depth: int = 0) -> None:
-    if depth > 20:
+MAX_PDF_ACTION_DEPTH = 200
+DANGEROUS_PDF_ACTIONS = {"/JavaScript", "/Launch", "/SubmitForm", "/ImportData", "/Rendition", "/GoToE"}
+
+
+def _resolve_pdf(value):
+    return value.get_object() if hasattr(value, "get_object") else value
+
+
+def _validate_pdf_action(value, location: str, depth: int = 0, seen: set[int] | None = None) -> None:
+    """실행 동작(/S가 있는 사전)만 따라가며 위험 동작을 찾는다.
+
+    문서 열기 위치(/OpenAction [페이지 /Fit])처럼 페이지를 가리키는 이동 대상은
+    실행 동작이 아니므로 페이지 트리 안으로 들어가지 않는다.
+    """
+    seen = set() if seen is None else seen
+    if depth > MAX_PDF_ACTION_DEPTH:
         raise DocumentRejected("ACTIVE_CONTENT", f"{location} 실행 동작의 구조가 너무 복잡합니다.")
     try:
-        action = value.get_object() if hasattr(value, "get_object") else value
+        action = _resolve_pdf(value)
     except Exception as exc:
         raise DocumentRejected("UNINSPECTABLE_PDF", f"{location} 실행 동작을 검사할 수 없습니다.") from exc
+    if id(action) in seen:
+        return
+    seen.add(id(action))
     if isinstance(action, (list, tuple)):
+        # 동작 배열(/Next) 또는 이동 대상 배열([페이지 /XYZ ...]). 동작 사전만 검사한다.
         for item in action:
-            _validate_pdf_action(item, location, depth + 1)
+            try:
+                resolved = _resolve_pdf(item)
+            except Exception as exc:
+                raise DocumentRejected("UNINSPECTABLE_PDF", f"{location} 실행 동작을 검사할 수 없습니다.") from exc
+            if hasattr(resolved, "get") and resolved.get("/S") is not None:
+                _validate_pdf_action(resolved, location, depth + 1, seen)
         return
     if not hasattr(action, "get"):
         return
     action_type = str(action.get("/S", ""))
     if not action_type:
+        # 추가 동작 사전(/AA)의 값 중 실제 동작만 검사하고, 페이지 등 다른 객체는 따라가지 않는다.
         for nested in action.values():
-            _validate_pdf_action(nested, location, depth + 1)
+            try:
+                resolved = _resolve_pdf(nested)
+            except Exception as exc:
+                raise DocumentRejected("UNINSPECTABLE_PDF", f"{location} 실행 동작을 검사할 수 없습니다.") from exc
+            if hasattr(resolved, "get") and resolved.get("/S") is not None:
+                _validate_pdf_action(resolved, location, depth + 1, seen)
         return
-    if action.get("/JS") is not None or action_type in {
-        "/JavaScript", "/Launch", "/SubmitForm", "/ImportData", "/Rendition", "/GoToE",
-    }:
+    if action.get("/JS") is not None or action_type in DANGEROUS_PDF_ACTIONS:
         raise DocumentRejected("ACTIVE_CONTENT", f"{location}에 스크립트 또는 외부 실행 동작이 포함되어 있습니다.")
     for key in ("/Next", "/A", "/AA"):
         nested = action.get(key)
         if nested is not None:
-            _validate_pdf_action(nested, location, depth + 1)
+            _validate_pdf_action(nested, location, depth + 1, seen)
 
 
 def _extract_pdf(content: bytes, *, allow_images: bool = False, allow_actions: bool = False) -> list[TextPart]:
@@ -252,6 +279,8 @@ def _extract_pdf(content: bytes, *, allow_images: bool = False, allow_actions: b
             except DocumentRejected:
                 raise
             except Exception as exc:
+                if allow_actions:
+                    continue
                 raise DocumentRejected("UNINSPECTABLE_ANNOTATION", f"PDF {number}쪽 주석을 검사할 수 없습니다.") from exc
 
     if unreadable:
@@ -278,7 +307,8 @@ def _extract_pdf(content: bytes, *, allow_images: bool = False, allow_actions: b
         if field_text:
             parts.append(TextPart("양식 필드", field_text, False))
     except Exception as exc:
-        raise DocumentRejected("UNINSPECTABLE_PDF", "PDF 양식 필드를 안전하게 검사할 수 없습니다.") from exc
+        if not allow_actions:
+            raise DocumentRejected("UNINSPECTABLE_PDF", "PDF 양식 필드를 안전하게 검사할 수 없습니다.") from exc
     return parts
 
 
@@ -585,7 +615,7 @@ def inspect_document(
     if not content:
         raise DocumentRejected("EMPTY_FILE", "빈 파일은 업로드할 수 없습니다.")
     if len(content) > MAX_UPLOAD_BYTES:
-        raise DocumentRejected("FILE_TOO_LARGE", "파일 크기는 30MB를 초과할 수 없습니다.")
+        raise DocumentRejected("FILE_TOO_LARGE", "파일 크기는 60MB를 초과할 수 없습니다.")
 
     file_type = detect_file_type(filename, content)
     if file_type == "pdf":
