@@ -344,6 +344,75 @@ def test_handbook_blocks_phone_resident_id_and_address(tmp_path, monkeypatch):
             assert response.json()["detail"]["code"] == "PERSONAL_INFORMATION_DETECTED"
 
 
+def test_handbook_allows_confirmed_personal_information_and_audits_it(tmp_path, monkeypatch):
+    configure_paths(tmp_path, monkeypatch)
+    content = hwpx_bytes("담당자 휴대전화 010-2345-6789")
+    with TestClient(app) as client:
+        blocked = client.post(
+            "/api/admin/handbook-attachments",
+            headers={"X-Admin-Key": "test-admin-key"},
+            data={"category_slug": "birth-death", "admin_name": "테스트 담당자"},
+            files={"file": ("필수편람.hwpx", content, "application/hwp+zip")},
+        )
+        assert blocked.status_code == 422
+        assert blocked.json()["detail"]["findings"] == [
+            {"type": "휴대전화번호", "location": "구역 1", "count": 1},
+        ]
+        confirmation_token = blocked.json()["detail"]["confirmation_token"]
+        assert len(confirmation_token) == 64
+
+        accepted = client.post(
+            "/api/admin/handbook-attachments",
+            headers={"X-Admin-Key": "test-admin-key"},
+            data={
+                "category_slug": "birth-death",
+                "admin_name": "테스트 담당자",
+                "personal_information_confirmation": confirmation_token,
+            },
+            files={"file": ("필수편람.hwpx", content, "application/hwp+zip")},
+        )
+        assert accepted.status_code == 200
+        assert "확인 기록" in accepted.json()["message"]
+        audits = client.get(
+            "/api/admin/audits",
+            headers={"X-Admin-Key": "test-admin-key"},
+        ).json()["items"]
+        assert audits[0]["result"] == "accepted"
+        assert audits[0]["reason_code"] == "PERSONAL_INFORMATION_CONFIRMED"
+        assert audits[0]["detected_types"] == "휴대전화번호"
+
+
+def test_handbook_confirmation_cannot_be_forged_or_bypass_attachment_metadata_check(tmp_path, monkeypatch):
+    configure_paths(tmp_path, monkeypatch)
+    content = hwpx_bytes("담당자 휴대전화 010-2345-6789")
+    with TestClient(app) as client:
+        forged = client.post(
+            "/api/admin/handbook-attachments",
+            headers={"X-Admin-Key": "test-admin-key"},
+            data={
+                "category_slug": "birth-death",
+                "admin_name": "테스트 담당자",
+                "personal_information_confirmation": "invalid-token",
+            },
+            files={"file": ("필수편람.hwpx", content, "application/hwp+zip")},
+        )
+        assert forged.status_code == 422
+        assert forged.json()["detail"]["findings"][0]["location"] == "구역 1"
+
+        response = client.post(
+            "/api/admin/handbook-attachments",
+            headers={"X-Admin-Key": "test-admin-key"},
+            data={
+                "category_slug": "birth-death",
+                "admin_name": "테스트 담당자",
+                "personal_information_confirmation": forged.json()["detail"]["confirmation_token"],
+            },
+            files={"file": ("010-2345-6789.hwpx", content, "application/hwp+zip")},
+        )
+        assert response.status_code == 422
+        assert response.json()["detail"]["findings"][0]["location"] == "첨부 정보"
+
+
 def test_handbook_allows_landline_phone(tmp_path, monkeypatch):
     configure_paths(tmp_path, monkeypatch)
     with TestClient(app) as client:

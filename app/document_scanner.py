@@ -580,6 +580,7 @@ def inspect_document(
     allow_pdf_actions: bool = False,
     allow_document_images: bool = False,
     blocked_finding_kinds: frozenset[str] | None = None,
+    allow_blocked_findings: bool = False,
 ) -> InspectionResult:
     if not content:
         raise DocumentRejected("EMPTY_FILE", "빈 파일은 업로드할 수 없습니다.")
@@ -601,7 +602,7 @@ def inspect_document(
         finding for finding in findings
         if blocked_finding_kinds is None or finding.kind in blocked_finding_kinds
     )
-    if blocked_findings:
+    if blocked_findings and not allow_blocked_findings:
         raise DocumentRejected(
             "PERSONAL_INFORMATION_DETECTED",
             "개인정보 패턴이 탐지되어 업로드를 차단했습니다.",
@@ -618,4 +619,4 @@ def inspect_document(
         "hwpx": "application/hwp+zip",
         "docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
     }
-    return InspectionResult(file_type, media_types[file_type], text, len(body_parts), ())
+    return InspectionResult(file_type, media_types[file_type], text, len(body_parts), blocked_findings)
