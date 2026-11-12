@@ -1,0 +1,185 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#405166">
+  <meta name="description" content="통합민원대 업무매뉴얼과 관련 자료를 한 곳에서 검색하고 열람합니다.">
+  <title>통합민원대 업무지원서비스</title>
+  <link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+  <a class="skip-link" href="#mainContent">본문 바로가기</a>
+  <header class="site-header">
+    <div class="utility-bar">
+      <div class="header-width">
+        <span>전남광주통합특별시 동구</span>
+        <nav aria-label="유틸리티 메뉴"><a href="/docs">API 안내</a><a href="/admin">담당자 관리</a></nav>
+      </div>
+    </div>
+    <div class="brand-row header-width">
+      <a class="brand" href="/" aria-label="통합민원대 업무지원서비스 홈">
+        <img class="brand-mark" src="/static/donggu-logo.png" alt="">
+        <span><strong>통합민원대 업무지원서비스</strong><small>INTEGRATED CIVIL SERVICE SUPPORT</small></span>
+      </a>
+      <div class="brand-notice"><strong>업무 처리 전 확인</strong><b>최신 법령·편람·소관부서 지침을 우선 확인하세요.</b></div>
+      <button class="mobile-menu" id="mobileMenuButton" type="button" aria-controls="categoryPanel" aria-expanded="false">업무분류</button>
+    </div>
+    <div class="search-band">
+      <form class="global-search header-width" id="searchForm" role="search">
+        <label for="searchInput">통합검색</label>
+        <div class="search-control">
+          <input id="searchInput" type="search" maxlength="100" autocomplete="off" placeholder="업무명, 처리 절차, 담당부서를 검색하세요">
+          <button type="submit" aria-label="검색">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6.5"></circle><path d="m15.5 15.5 5 5"></path></svg>
+            <span>검색</span>
+          </button>
+        </div>
+        <p class="popular"><strong>자주 찾는 업무</strong><button type="button" data-query="주민등록">주민등록</button><button type="button" data-query="인감">인감</button><button type="button" data-query="전입신고">전입신고</button><button type="button" data-query="건축물대장">건축물대장</button></p>
+      </form>
+    </div>
+    <nav class="resource-tabs" aria-label="자료 유형">
+      <div class="header-width">
+        <button class="active" type="button" data-resource="manual">업무매뉴얼</button>
+        <button type="button" data-resource="permission">권한신청서식</button>
+        <button type="button" data-resource="handbook">편람</button>
+        <a href="https://www.law.go.kr/lsBylSc.do?menuId=9&amp;subMenuId=55&amp;tabMenuId=261&amp;eventGubun=060118" target="_blank" rel="noopener">국가법령정보센터 별표서식</a>
+      </div>
+    </nav>
+  </header>
+
+  <div class="portal-layout">
+    <aside class="category-panel" id="categoryPanel" aria-label="업무 분류">
+      <div class="panel-title"><span id="categoryEyebrow">업무 매뉴얼</span><strong>분류별 찾기</strong></div>
+      <button class="category-all active" id="allDocumentsButton" type="button"><span id="allDocumentsLabel">전체 업무</span><b id="totalCategoryCount">0</b></button>
+      <nav class="category-list" id="categoryList" aria-label="매뉴얼 분류"></nav>
+    </aside>
+
+    <main class="document-main" id="mainContent" tabindex="-1">
+      <div class="breadcrumb" id="breadcrumb"><a href="/">홈</a><span>업무매뉴얼</span></div>
+
+      <section class="result-view" id="resultView" hidden>
+        <div class="result-heading">
+          <div><p>MANUAL SEARCH</p><h1 id="resultTitle">전체 업무 매뉴얼</h1></div>
+          <span>총 <strong id="resultTotal">0</strong>건</span>
+        </div>
+        <div class="result-list" id="resultList"></div>
+      </section>
+
+      <article class="manual-view" id="manualView">
+        <header class="manual-header">
+          <div class="manual-label"><span id="documentCategory">업무분류</span><em id="documentStatus">현행</em></div>
+          <h1 id="documentTitle">매뉴얼을 불러오는 중입니다</h1>
+          <p id="documentSummary"></p>
+          <dl class="manual-meta" id="documentMeta">
+            <div><dt>담당부서</dt><dd id="documentDepartment">-</dd></div>
+            <div id="documentUpdatedMeta"><dt>최종개정</dt><dd id="documentUpdated">-</dd></div>
+          </dl>
+        </header>
+
+        <section class="source-panel" id="sourcePanel">
+          <div class="source-toolbar">
+            <div><span>PDF 원문 서식</span><strong id="sourcePageRange">관련 페이지</strong></div>
+            <p>표, 테두리 글상자, 강조색과 화면 예시를 원본 그대로 확인합니다.</p>
+            <a id="sourceOpenLink" href="/source-manual.pdf" target="_blank" rel="noopener">새 창에서 크게 보기</a>
+          </div>
+          <iframe id="sourceFrame" title="통합민원 업무매뉴얼 원문" loading="lazy"></iframe>
+          <p class="source-fallback">PDF가 보이지 않으면 <a id="sourceFallbackLink" href="/source-manual.pdf" target="_blank" rel="noopener">원문을 새 창에서 여세요.</a></p>
+        </section>
+
+        <section class="permission-panel" id="permissionPanel" hidden>
+          <div class="permission-paper">
+            <div class="permission-heading"><span>PERMISSION GUIDE</span><strong>통합민원대 권한 신청방법 안내</strong></div>
+            <h2 id="permissionTitle"></h2>
+            <dl class="permission-department"><dt>담당부서</dt><dd id="permissionDepartment"></dd></dl>
+            <div class="permission-process">
+              <h3>신청방법</h3>
+              <div class="permission-method" id="permissionMethod"></div>
+            </div>
+            <div class="permission-notes" id="permissionNotes" hidden><strong>확인사항</strong><ul></ul></div>
+            <a class="permission-link" id="permissionLink" target="_blank" rel="noopener" hidden>관련 사이트 바로가기</a>
+            <section class="permission-attachments" id="permissionAttachments">
+              <div class="permission-attachment-heading"><div><span>HWP · HWPX</span><h3>권한신청 한글서식</h3></div><b id="permissionAttachmentCount">0</b></div>
+              <div class="permission-attachment-list" id="permissionAttachmentList"></div>
+              <details class="permission-upload-box" id="permissionUploadBox">
+                <summary>한글파일 첨부하기</summary>
+                <form id="permissionUploadForm">
+                  <div class="permission-upload-grid">
+                    <label><span>관리자 키</span><input id="permissionAdminKey" type="password" autocomplete="current-password" required></label>
+                    <label><span>담당자명</span><input id="permissionAdminName" type="text" maxlength="50" required></label>
+                  </div>
+                  <label class="permission-file-field"><span>첨부파일</span><input id="permissionFile" type="file" accept=".hwp,.hwpx" required></label>
+                  <p>HWP·HWPX만 가능하며 개인정보 및 문서 구조 검사를 통과해야 등록됩니다.</p>
+                  <button type="submit">검사 후 첨부</button>
+                  <div class="permission-upload-result" id="permissionUploadResult" role="status" aria-live="polite"></div>
+                </form>
+              </details>
+            </section>
+          </div>
+        </section>
+
+        <section class="handbook-panel" id="handbookPanel" hidden>
+          <div class="handbook-paper">
+            <div class="handbook-heading"><span>WORK HANDBOOK</span><strong>통합민원대 업무편람</strong></div>
+            <h2 id="handbookTitle"></h2>
+            <p>분류에 첨부된 편람 자료를 내려받거나 관리자가 삭제·등록할 수 있습니다.</p>
+            <div class="handbook-attachment-list" id="handbookAttachmentList"></div>
+            <section class="handbook-pdf-viewer" id="handbookPdfViewer" hidden>
+              <div class="handbook-pdf-toolbar">
+                <div><span>PDF 원문</span><strong id="handbookPdfTitle"></strong></div>
+                <a id="handbookPdfOpen" target="_blank" rel="noopener">새 창에서 크게 보기</a>
+              </div>
+              <iframe id="handbookPdfFrame" title="업무편람 PDF 원문" loading="lazy"></iframe>
+            </section>
+            <details class="permission-upload-box handbook-upload-box">
+              <summary>편람 자료 첨부 및 관리</summary>
+              <form id="handbookUploadForm">
+                <div class="permission-upload-grid">
+                  <label><span>관리자 키</span><input id="handbookAdminKey" type="password" autocomplete="current-password" required></label>
+                  <label><span>담당자명</span><input id="handbookAdminName" type="text" maxlength="50" required></label>
+                </div>
+                <label class="permission-file-field"><span>첨부파일</span><input id="handbookFile" type="file" accept=".hwp,.hwpx,.pdf,.docx" required></label>
+                <p>이미지가 포함된 HWP·HWPX·PDF·DOCX도 가능합니다. 주민·외국인등록번호, 휴대전화번호, 주소가 탐지되면 등록이 차단됩니다.</p>
+                <button type="submit">검사 후 첨부</button>
+                <div class="permission-upload-result" id="handbookUploadResult" role="status" aria-live="polite"></div>
+              </form>
+            </details>
+          </div>
+        </section>
+
+        <section class="legal-forms-panel" id="legalFormsPanel" hidden>
+          <div class="legal-forms-toolbar">
+            <div><span>LAW.GO.KR</span><strong>국가법령정보센터 별표·서식</strong></div>
+            <p>법령별 별표와 서식을 검색하고 원문 파일을 내려받을 수 있습니다.</p>
+            <a href="https://www.law.go.kr/lsBylSc.do?menuId=9&amp;subMenuId=55&amp;tabMenuId=261&amp;eventGubun=060118" target="_blank" rel="noopener">화면이 보이지 않을 때 새 창에서 열기</a>
+          </div>
+          <iframe id="legalFormsFrame" title="국가법령정보센터 별표서식 검색" loading="lazy"></iframe>
+        </section>
+      </article>
+    </main>
+
+    <aside class="related-panel" aria-label="관련사이트">
+      <div class="related-panel-heading"><span>QUICK LINKS</span><strong>관련사이트</strong></div>
+      <nav class="related-panel-list" id="relatedSiteList"></nav>
+      <details class="related-site-admin">
+        <summary>관리자 사이트 추가</summary>
+        <form id="relatedSiteForm">
+          <label><span>관리자 코드</span><input id="relatedSiteAdminKey" type="password" autocomplete="current-password" required></label>
+          <label><span>담당자명</span><input id="relatedSiteAdminName" type="text" maxlength="50" required></label>
+          <label><span>사이트명</span><input id="relatedSiteName" type="text" maxlength="100" required></label>
+          <label><span>사이트 주소</span><input id="relatedSiteUrl" type="url" maxlength="500" placeholder="https://" required></label>
+          <button type="submit">사이트 추가</button>
+          <p id="relatedSiteResult" role="status" aria-live="polite"></p>
+        </form>
+      </details>
+    </aside>
+
+  </div>
+
+  <footer class="site-footer">
+    <div class="header-width"><strong>통합민원대 업무지원서비스</strong><p>업무자료의 정확성과 최신성은 각 담당부서에서 관리합니다.</p></div>
+  </footer>
+  <div class="toast" id="toast" role="status" aria-live="polite"></div>
+  <script src="/app.js"></script>
+</body>
+</html>
