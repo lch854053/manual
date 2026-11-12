@@ -88,6 +88,14 @@ def image_pdf_bytes() -> bytes:
     return output.getvalue()
 
 
+def blank_pdf_bytes() -> bytes:
+    writer = PdfWriter()
+    writer.add_blank_page(width=100, height=100)
+    output = io.BytesIO()
+    writer.write(output)
+    return output.getvalue()
+
+
 def action_pdf_bytes() -> bytes:
     reader = PdfReader(io.BytesIO(image_pdf_bytes()))
     writer = PdfWriter()
@@ -398,6 +406,25 @@ def test_handbook_accepts_image_pdf_and_serves_it_inline(tmp_path, monkeypatch):
         assert view.headers["content-type"] == "application/pdf"
         assert view.headers["content-disposition"].startswith("inline;")
         assert view.content == content
+
+
+def test_handbook_accepts_pdf_pages_without_extractable_text(tmp_path, monkeypatch):
+    configure_paths(tmp_path, monkeypatch)
+    content = blank_pdf_bytes()
+    try:
+        inspect_document("텍스트없는편람.pdf", content)
+        raise AssertionError("일반 문서 업로드가 텍스트 없는 PDF를 허용함")
+    except DocumentRejected as exc:
+        assert exc.code == "UNINSPECTABLE_PAGE"
+
+    with TestClient(app) as client:
+        response = client.post(
+            "/api/admin/handbook-attachments",
+            headers={"X-Admin-Key": "test-admin-key"},
+            data={"category_slug": "birth-death", "admin_name": "테스트 담당자"},
+            files={"file": ("텍스트없는편람.pdf", content, "application/pdf")},
+        )
+        assert response.status_code == 200
 
 
 def test_handbook_accepts_safe_pdf_link_action(tmp_path, monkeypatch):

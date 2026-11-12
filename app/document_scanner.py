@@ -225,7 +225,7 @@ def _extract_pdf(content: bytes, *, allow_images: bool = False, allow_actions: b
                 "UNINSPECTABLE_IMAGE",
                 f"PDF {number}쪽에 이미지가 있어 내부 개인정보를 전수검사할 수 없습니다. 이미지가 없는 텍스트 PDF를 업로드하세요.",
             )
-        if not meaningful_count and not (allow_images and has_images):
+        if not meaningful_count and not allow_images:
             unreadable.append(number)
         parts.append(TextPart(f"{number}쪽", text))
         continuous_text = text.replace("\r", "").replace("\n", "")
