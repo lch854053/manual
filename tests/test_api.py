@@ -669,7 +669,7 @@ def test_handbook_accepts_files_larger_than_30mb(tmp_path, monkeypatch):
         assert response.status_code == 200, response.text
 
 
-def _configure_source(tmp_path, monkeypatch, pages=72):
+def _configure_source(tmp_path, monkeypatch, pages=73):
     configure_paths(tmp_path, monkeypatch)
     source = tmp_path / "source-manual.pdf"
     if pages:
@@ -695,9 +695,9 @@ def test_source_manual_status_lists_default_pages(tmp_path, monkeypatch):
     with TestClient(app) as client:
         payload = client.get("/api/source-manual").json()
         assert payload["available"] is True
-        assert payload["page_count"] == 72
+        assert payload["page_count"] == 73
         pages = {item["category"]: (item["start"], item["end"]) for item in payload["pages"]}
-        assert pages["주민등록시스템"] == (15, 45)
+        assert pages["주민등록시스템"] == (15, 47)
         assert len(pages) == 12
 
 
@@ -737,8 +737,8 @@ def test_source_manual_rejects_bad_pages_and_keeps_original(tmp_path, monkeypatc
     source = _configure_source(tmp_path, monkeypatch)
     before = source.read_bytes()
     with TestClient(app) as client:
-        too_far = _save_source(client, [{"category": "자동차등록원부", "start": 71, "end": 75}], content=_handbook_pdf(pages=72))
-        assert too_far.status_code == 422 and "72쪽" in too_far.json()["detail"]
+        too_far = _save_source(client, [{"category": "자동차등록원부", "start": 73, "end": 75}], content=_handbook_pdf(pages=73))
+        assert too_far.status_code == 422 and "73쪽" in too_far.json()["detail"]
         reversed_range = _save_source(client, [{"category": "출생·사망", "start": 10, "end": 3}])
         assert reversed_range.status_code == 422
         unknown = _save_source(client, [{"category": "없는업무", "start": 1, "end": 2}])
@@ -765,6 +765,6 @@ def test_source_manual_upload_works_when_no_original_exists(tmp_path, monkeypatc
     with TestClient(app) as client:
         assert client.get("/api/source-manual").json()["available"] is False
         assert _save_source(client, []).status_code == 422
-        response = _save_source(client, [], content=_handbook_pdf(pages=72))
+        response = _save_source(client, [], content=_handbook_pdf(pages=73))
         assert response.status_code == 200, response.text
         assert response.json()["available"] is True

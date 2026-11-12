@@ -228,12 +228,14 @@ function renderSourceRows() {
 async function loadSourceManual() {
   try {
     const response = await fetch("/api/source-manual");
-    if (!response.ok) throw new Error();
+    if (response.status === 404) throw new Error("서버가 이전 버전으로 실행 중입니다. 열려 있는 검은 서버 창을 모두 닫고 start-server.bat을 다시 실행한 뒤 이 화면을 Ctrl + F5로 새로고침하세요.");
+    if (!response.ok) throw new Error("원본 정보를 불러오지 못했습니다. 서버 상태를 확인하세요.");
     sourceInfo = await response.json();
     renderSourceStatus();
     renderSourceRows();
-  } catch {
-    $("#sourceStatus").textContent = "원본 정보를 불러오지 못했습니다. 서버 상태를 확인하세요.";
+  } catch (error) {
+    $("#sourceStatus").classList.add("missing");
+    $("#sourceStatus").textContent = error.message || "원본 정보를 불러오지 못했습니다. 서버 상태를 확인하세요.";
   }
 }
 
@@ -263,7 +265,8 @@ async function saveSourceManual(event) {
   if (file) data.append("file", file);
   try {
     const response = await fetch("/api/admin/source-manual", { method: "POST", headers: credentials("#sourceAdminKey"), body: data });
-    const payload = await response.json();
+    if (response.status === 404 || response.status === 405) throw new Error("서버가 이전 버전으로 실행 중입니다. 열려 있는 검은 서버 창을 모두 닫고 start-server.bat을 다시 실행한 뒤 이 화면을 Ctrl + F5로 새로고침하세요.");
+    const payload = await response.json().catch(() => ({}));
     if (!response.ok) {
       const detail = payload.detail;
       throw new Error(typeof detail === "string" ? detail : detail?.[0]?.msg || "저장하지 못했습니다.");

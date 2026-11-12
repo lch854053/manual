@@ -23,6 +23,20 @@ function adminAuthHeaders(value) {
   return { "X-Admin-Key": `b64:${btoa(binary)}` };
 }
 
+const fallbackSourcePages = {
+  "출생·사망": [3, 10],
+  "가족관계시스템": [11, 14],
+  "주민등록시스템": [15, 47],
+  "부동산종합공부": [48, 51],
+  "토지이용계획": [52, 52],
+  "건축행정시스템": [53, 55],
+  "차세대지방세": [56, 61],
+  "부동산공시가격": [62, 62],
+  "부동산거래관리": [63, 64],
+  "외국인정보공동이용": [65, 68],
+  "민원처리운영창구": [69, 72],
+  "자동차등록원부": [73, 73],
+};
 let sourcePages = {};
 let sourceVersion = "";
 
@@ -995,6 +1009,8 @@ async function main() {
     if (sourcePayload?.available) {
       sourcePages = Object.fromEntries(sourcePayload.pages.map((item) => [item.category, [item.start, item.end]]));
       sourceVersion = sourcePayload.version || "";
+    } else if (!sourcePayload) {
+      sourcePages = fallbackSourcePages;
     }
     state.categories = categoryPayload.items;
     state.permissions = permissionPayload.items;
