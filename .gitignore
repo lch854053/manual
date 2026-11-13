@@ -4,3 +4,6 @@ __pycache__/
 .venv/
 .env
 data/
+.venv-build/
+site/
+.DS_Store
